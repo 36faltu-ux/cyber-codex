@@ -46,6 +46,15 @@ const userSchema = new mongoose.Schema(
       maxlength: [100, 'Display name must be 100 characters or fewer.'],
       default: '',
     },
+    avatarUrl: {
+      type: String,
+      trim: true,
+      default: '',
+      validate: {
+        validator: (v) => !v || /^https?:\/\//i.test(v),
+        message: 'avatarUrl must be a valid http/https URL.',
+      },
+    },
   },
   {
     timestamps: true,
@@ -58,10 +67,9 @@ const userSchema = new mongoose.Schema(
  * Hash the plain-text password before saving.
  * Only runs when passwordHash has been modified.
  */
-userSchema.pre('save', async function (next) {
-  if (!this.isModified('passwordHash')) return next();
+userSchema.pre('save', async function () {
+  if (!this.isModified('passwordHash')) return;
   this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
-  next();
 });
 
 /**
@@ -84,6 +92,7 @@ userSchema.methods.toPublicJSON = function () {
     _id: this._id,
     email: this.email,
     displayName: this.displayName,
+    avatarUrl: this.avatarUrl || '',
     role: this.role,
     createdAt: this.createdAt,
   };

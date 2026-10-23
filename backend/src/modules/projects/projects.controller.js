@@ -5,17 +5,16 @@ const asyncHandler = require('../../utils/asyncHandler');
 
 /**
  * GET /api/projects
- * Returns all projects sorted newest-first.
- * Phase 3: will filter by req.user._id.
+ * Returns only the authenticated user's projects, newest-first.
  */
 const listProjects = asyncHandler(async (req, res) => {
-  const projects = await Project.find().sort({ createdAt: -1 });
+  const projects = await Project.find({ userId: req.user._id }).sort({ createdAt: -1 });
   res.json(projects);
 });
 
 /**
  * POST /api/projects
- * Creates a new project.
+ * Creates a new project owned by the authenticated user.
  * Body: { title: string, description?: string }
  */
 const createProject = asyncHandler(async (req, res) => {
@@ -27,7 +26,7 @@ const createProject = asyncHandler(async (req, res) => {
   const project = await Project.create({
     title,
     description: (req.body.description || '').toString().trim(),
-    // Phase 3: userId: req.user._id
+    userId: req.user._id,
   });
 
   res.status(201).json(project);
@@ -35,8 +34,7 @@ const createProject = asyncHandler(async (req, res) => {
 
 /**
  * PUT /api/projects/:id
- * Updates title and/or description of an existing project.
- * Body: { title?: string, description?: string }
+ * Updates title and/or description — only if the project belongs to the caller.
  */
 const updateProject = asyncHandler(async (req, res) => {
   const updates = {};
@@ -50,8 +48,13 @@ const updateProject = asyncHandler(async (req, res) => {
     updates.description = req.body.description.trim();
   }
 
-  const project = await Project.findByIdAndUpdate(
-    req.params.id,
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ error: 'Provide at least one field to update.' });
+  }
+
+  // Ownership enforced: only match documents that belong to this user
+  const project = await Project.findOneAndUpdate(
+    { _id: req.params.id, userId: req.user._id },
     updates,
     { new: true, runValidators: true }
   );
@@ -62,10 +65,13 @@ const updateProject = asyncHandler(async (req, res) => {
 
 /**
  * DELETE /api/projects/:id
- * Permanently deletes a project.
+ * Permanently deletes a project — only if it belongs to the caller.
  */
 const deleteProject = asyncHandler(async (req, res) => {
-  const project = await Project.findByIdAndDelete(req.params.id);
+  const project = await Project.findOneAndDelete({
+    _id: req.params.id,
+    userId: req.user._id,
+  });
   if (!project) return res.status(404).json({ error: 'Project not found.' });
   res.json({ message: 'Project deleted successfully.' });
 });

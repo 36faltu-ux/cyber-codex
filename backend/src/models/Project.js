@@ -28,12 +28,11 @@ const projectSchema = new mongoose.Schema(
       maxlength: [2000, 'Description must be 2000 characters or fewer.'],
       trim: true,
     },
-    // Phase 3: userId will become required: true
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
+      required: [true, 'Project must belong to a user.'],
       index: true,
-      default: null,
     },
   },
   {

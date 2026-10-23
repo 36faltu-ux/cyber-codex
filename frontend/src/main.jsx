@@ -41,14 +41,41 @@ function DashboardApp({ token, onLogout }) {
   const notify = (s) => { setToast(s); setTimeout(() => setToast(''), 2600) };
   const matching = useMemo(() => { if (!search.trim()) return []; const term = search.toLowerCase(); return [...navItems.map(([label]) => ({ label, type: 'section' })), ...scans.map(x => ({ label: x.target, type: 'scan' })), ...tasks.map(x => ({ label: x.title, type: 'task' })), ...projects.map(x => ({ label: x.title, type: 'project' }))].filter(x => x.label.toLowerCase().includes(term)).slice(0, 6) }, [search, scans, tasks, projects]);
 
-  // Save Tasks State Handler
+  // Save Tasks State Handler — persists to localStorage and MongoDB
   const saveTasks = (next) => {
+    // Find a task whose 'done' state changed and has a MongoDB _id
+    const changed = next.find((t, i) => t._id && tasks[i] && t.done !== tasks[i].done);
+    if (changed) {
+      fetch(`http://localhost:5000/api/tasks/${changed._id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ done: changed.done }),
+      }).catch(() => {}); // silent — UI already updated
+    }
     setTasks(next);
     localStorage.setItem('cyberTasks', JSON.stringify(next));
   };
 
   const navigate = (name) => { setPage(name); setSidebarOpen(false); setMenu(''); setSearch('') };
-  const submitChat = (text = chatText) => { if (!text.trim()) return; setChat(c => [...c, { from: 'you', text: text.trim() }]); setChatText(''); setTimeout(() => setChat(c => [...c, { from: 'ai', text: 'Demo Mode: no AI service is configured. I can help organize a safe workflow, but I have not run a scan or verified this finding.' }]), 650) };
+  // submitChat — wired to POST /api/chat (Kira AI backend)
+  const submitChat = async (text = chatText) => {
+    if (!text.trim()) return;
+    const userMsg = text.trim();
+    setChat(c => [...c, { from: 'you', text: userMsg }]);
+    setChatText('');
+    try {
+      const res = await fetch('http://localhost:5000/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ message: userMsg }),
+      });
+      const data = await res.json();
+      const reply = data.reply || 'Kira is unavailable right now. Please try again.';
+      setChat(c => [...c, { from: 'ai', text: reply }]);
+    } catch {
+      setChat(c => [...c, { from: 'ai', text: 'Demo Mode: could not reach the AI service. Make sure the backend is running on port 5000.' }]);
+    }
+  };
   const action = (name) => { if (name === 'AI Assistant') { navigate(name); return } setModal(name) };
   const doSearch = (item) => { if (item.type === 'section') navigate(item.label); else if (item.type === 'scan') { setSelected(scans.find(x => x.target === item.label)); setModal('Scan details') } else if (item.type === 'task') navigate('Notes & Tasks'); else navigate('Projects & Files'); setSearch('') };
   const body = <>
@@ -88,13 +115,47 @@ function Modal(p) {
       let u; try { u = new URL(form.URL || '') } catch { }
       if (!u || !['http:', 'https:'].includes(u.protocol)) { setError('Enter a valid http or https URL.'); return }
       if (!form.authorized) { setError('Confirm you are authorized to assess this target.'); return }
-      p.setScans([{ type: 'URL Scan', target: u.hostname, risk: 'Unverified', status: 'Demo request', date: 'Just now' }, ...p.scans]);
-      p.notify('Demo request recorded. No scan was performed.')
+      setBusy(true);
+      try {
+        const res = await fetch('http://localhost:5000/api/scans', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${p.token}` },
+          body: JSON.stringify({ type: 'URL', target: (form.URL || '').trim() }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          p.setScans(prev => [{ type: 'URL Scan', target: data.target || u.hostname, risk: data.risk || 'Low', status: data.status || 'complete', date: 'Just now' }, ...prev]);
+          p.notify(`Scan complete — Risk: ${data.risk || 'Low'}`);
+        } else {
+          p.setScans(prev => [{ type: 'URL Scan', target: u.hostname, risk: 'Pending', status: 'Queued', date: 'Just now' }, ...prev]);
+          p.notify('Scan queued (backend error).');
+        }
+      } catch {
+        p.setScans(prev => [{ type: 'URL Scan', target: u.hostname, risk: 'Unverified', status: 'Demo request', date: 'Just now' }, ...prev]);
+        p.notify('Demo request recorded. Backend offline — no scan performed.');
+      } finally { setBusy(false); }
     } else if (m === 'Scan Code') {
       if ((form.Code || '').trim().length < 10) { setError('Add at least 10 characters of code to continue.'); return }
       if (!form.authorized) { setError('Confirm you are authorized to assess this code.'); return }
-      p.setScans([{ type: 'Code Scan', target: 'pasted-code.txt', risk: 'Unverified', status: 'Demo request', date: 'Just now' }, ...p.scans]);
-      p.notify('Code request recorded. No analysis was performed.')
+      setBusy(true);
+      try {
+        const res = await fetch('http://localhost:5000/api/scans', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${p.token}` },
+          body: JSON.stringify({ type: 'Code', target: (form.Code || '').trim() }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          p.setScans(prev => [{ type: 'Code Scan', target: 'pasted-code.txt', risk: data.risk || 'Low', status: data.status || 'complete', date: 'Just now' }, ...prev]);
+          p.notify(`Code scan complete — Risk: ${data.risk || 'Low'}`);
+        } else {
+          p.setScans(prev => [{ type: 'Code Scan', target: 'pasted-code.txt', risk: 'Pending', status: 'Queued', date: 'Just now' }, ...prev]);
+          p.notify('Code scan queued (backend error).');
+        }
+      } catch {
+        p.setScans(prev => [{ type: 'Code Scan', target: 'pasted-code.txt', risk: 'Unverified', status: 'Demo request', date: 'Just now' }, ...prev]);
+        p.notify('Code request recorded. Backend offline — no analysis performed.');
+      } finally { setBusy(false); }
     } else if (m === 'Analyze File') {
       if (!form.file) { setError('Choose a file first.'); return }
       p.notify('File selected locally. No malware analysis was performed.')
@@ -127,8 +188,31 @@ function Modal(p) {
           setBusy(false);
         }
       } else {
-        p.setProjects(p.projects.map((x, i) => i === 0 ? { ...x, title: form.Name } : x));
-        p.notify('Project updated.');
+        // Change B — Edit Project: call PUT /api/projects/:id
+        const proj = p.projects.find(x => x._id) || p.projects[0];
+        if (proj && proj._id) {
+          setBusy(true);
+          try {
+            const res = await fetch(`http://localhost:5000/api/projects/${proj._id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${p.token}` },
+              body: JSON.stringify({ title: form.Name.trim(), description: (form.Description || '').trim() }),
+            });
+            if (!res.ok) throw new Error('Update failed');
+            const updated = await res.json();
+            p.setProjects(prev => prev.map(x => x._id === proj._id ? updated : x));
+            p.notify('Project updated in MongoDB.');
+          } catch (err) {
+            console.error(err);
+            p.setProjects(p.projects.map((x, i) => i === 0 ? { ...x, title: form.Name } : x));
+            p.notify('Project updated locally (backend error).');
+          } finally {
+            setBusy(false);
+          }
+        } else {
+          p.setProjects(p.projects.map((x, i) => i === 0 ? { ...x, title: form.Name } : x));
+          p.notify('Project updated.');
+        }
       }
     }
     // Save New Task to MongoDB
@@ -165,10 +249,46 @@ function Modal(p) {
       }
     } else if (m === 'Delete Project') {
       if (!form.confirm) { setError('Confirm project deletion to continue.'); return }
-      p.setProjects(p.projects.slice(1));
-      p.notify('Project removed from this session.')
+      // Change C — Delete Project: call DELETE /api/projects/:id
+      const proj = p.projects.find(x => x._id) || p.projects[0];
+      if (proj && proj._id) {
+        setBusy(true);
+        try {
+          const res = await fetch(`http://localhost:5000/api/projects/${proj._id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${p.token}` },
+          });
+          if (!res.ok) throw new Error('Delete failed');
+          p.setProjects(prev => prev.filter(x => x._id !== proj._id));
+          p.notify('Project deleted from MongoDB.');
+        } catch (err) {
+          console.error(err);
+          p.setProjects(p.projects.slice(1));
+          p.notify('Project removed locally (backend error).');
+        } finally {
+          setBusy(false);
+        }
+      } else {
+        p.setProjects(p.projects.slice(1));
+        p.notify('Project removed from this session.');
+      }
     } else if (m === 'Create Report') {
-      p.notify('Sample report prepared. No verified findings included.')
+      setBusy(true);
+      try {
+        const res = await fetch('http://localhost:5000/api/reports', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${p.token}` },
+          body: JSON.stringify({ title: `Security Report — ${new Date().toLocaleDateString()}` }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          p.notify(`Report generated: ${data.title}`);
+        } else {
+          p.notify('Sample report prepared. No verified findings included.');
+        }
+      } catch {
+        p.notify('Sample report prepared. Backend offline.');
+      } finally { setBusy(false); }
     } else if (m === 'Automate') {
       if (!form.authorized) { setError('Confirm target authorization before saving this workflow.'); return }
       p.notify('Workflow draft saved. Scheduling is not configured.')
@@ -188,7 +308,15 @@ function Root() {
     setToken(tok);
   };
 
+  // Change D — Logout: signal server (for future token blocklist), then clear client state
   const handleLogout = () => {
+    const t = localStorage.getItem('ca_token');
+    if (t) {
+      fetch('http://localhost:5000/api/auth/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${t}` },
+      }).catch(() => {}); // fire-and-forget
+    }
     localStorage.removeItem('ca_token');
     setToken(null);
   };

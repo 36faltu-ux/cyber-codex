@@ -5,17 +5,16 @@ const asyncHandler = require('../../utils/asyncHandler');
 
 /**
  * GET /api/tasks
- * Returns all tasks sorted newest-first.
- * Phase 3: will filter by req.user._id.
+ * Returns only the authenticated user's tasks, newest-first.
  */
 const listTasks = asyncHandler(async (req, res) => {
-  const tasks = await Task.find().sort({ createdAt: -1 });
+  const tasks = await Task.find({ userId: req.user._id }).sort({ createdAt: -1 });
   res.json(tasks);
 });
 
 /**
  * POST /api/tasks
- * Creates a new task.
+ * Creates a new task owned by the authenticated user.
  * Body: { title: string, due?: string, done?: boolean }
  */
 const createTask = asyncHandler(async (req, res) => {
@@ -28,7 +27,7 @@ const createTask = asyncHandler(async (req, res) => {
     title,
     due: (req.body.due || 'No due date').toString().trim(),
     done: Boolean(req.body.done),
-    // Phase 3: userId: req.user._id
+    userId: req.user._id,
   });
 
   res.status(201).json(task);
@@ -36,8 +35,7 @@ const createTask = asyncHandler(async (req, res) => {
 
 /**
  * PUT /api/tasks/:id
- * Updates one or more fields of an existing task.
- * Body: { title?: string, due?: string, done?: boolean }
+ * Updates one or more fields — only if the task belongs to the caller.
  */
 const updateTask = asyncHandler(async (req, res) => {
   const updates = {};
@@ -58,8 +56,9 @@ const updateTask = asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'No valid fields provided for update.' });
   }
 
-  const task = await Task.findByIdAndUpdate(
-    req.params.id,
+  // Ownership enforced: only match documents that belong to this user
+  const task = await Task.findOneAndUpdate(
+    { _id: req.params.id, userId: req.user._id },
     updates,
     { new: true, runValidators: true }
   );
@@ -70,10 +69,13 @@ const updateTask = asyncHandler(async (req, res) => {
 
 /**
  * DELETE /api/tasks/:id
- * Permanently deletes a task.
+ * Permanently deletes a task — only if it belongs to the caller.
  */
 const deleteTask = asyncHandler(async (req, res) => {
-  const task = await Task.findByIdAndDelete(req.params.id);
+  const task = await Task.findOneAndDelete({
+    _id: req.params.id,
+    userId: req.user._id,
+  });
   if (!task) return res.status(404).json({ error: 'Task not found.' });
   res.json({ message: 'Task deleted successfully.' });
 });

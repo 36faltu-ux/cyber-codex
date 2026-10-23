@@ -51,4 +51,9 @@ module.exports = {
   // Rate limiting
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000,
   rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX, 10) || 200,
+
+  // AI provider keys (optional — used by chat, scans, and reports modules)
+  // If neither is set, those features fall back to demo/heuristic mode.
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY || null,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY || null,
 };

@@ -29,12 +29,11 @@ const taskSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    // Phase 3: userId will become required: true
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
+      required: [true, 'Task must belong to a user.'],
       index: true,
-      default: null,
     },
   },
   {

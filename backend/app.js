@@ -11,9 +11,13 @@ const { apiLimiter } = require('./src/middleware/rateLimiter');
 const errorHandler = require('./src/middleware/errorHandler');
 
 // Feature routers
-const authRouter = require('./src/modules/auth/auth.routes');
+const authRouter    = require('./src/modules/auth/auth.routes');
 const projectsRouter = require('./src/modules/projects/projects.routes');
-const tasksRouter = require('./src/modules/tasks/tasks.routes');
+const tasksRouter   = require('./src/modules/tasks/tasks.routes');
+const chatRouter    = require('./src/modules/chat/chat.routes');
+const scansRouter   = require('./src/modules/scans/scans.routes');
+const usersRouter   = require('./src/modules/users/users.routes');
+const reportsRouter = require('./src/modules/reports/reports.routes');
 
 function createApp() {
   const app = express();
@@ -55,10 +59,13 @@ function createApp() {
   });
 
   // ── Feature routes ──────────────────────────────────────────────────────────
-  app.use('/api/auth', authRouter);       // Phase 3: Authentication
-  app.use('/api/projects', projectsRouter); // Phase 4: will add authenticate middleware
-  app.use('/api/tasks', tasksRouter);       // Phase 4: will add authenticate middleware
-  // Phase 4+: scans, chat, reports, stats routers added here
+  app.use('/api/auth',     authRouter);     // Phase 3: Authentication
+  app.use('/api/projects', projectsRouter); // Phase 4: Projects  (auth-protected)
+  app.use('/api/tasks',    tasksRouter);    // Phase 4: Tasks     (auth-protected)
+  app.use('/api/chat',     chatRouter);     // Phase 5: AI Chat (Kira)
+  app.use('/api/scans',    scansRouter);    // Phase 5: Security Scans
+  app.use('/api/users',    usersRouter);    // Phase 5: User Profile
+  app.use('/api/reports',  reportsRouter);  // Phase 5: Reports
 
   // ── 404 handler ─────────────────────────────────────────────────────────────
   app.use((req, res) => {
