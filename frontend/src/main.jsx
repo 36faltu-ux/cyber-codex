@@ -3,8 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { Activity, AlertTriangle, Archive, ArrowDown, ArrowRight, ArrowUp, Bell, Biohazard, Bot, Bug, Check, CheckSquare, ChevronDown, CircleHelp, Clock3, Code2, FileCode2, FileSearch, FileText, Fingerprint, Folder, FolderOpen, Gauge, Globe2, Home, Link, LockKeyhole, LogOut, Menu, MessageSquare, MoreHorizontal, Network, Plus, Scan, Search, Send, Settings, Shield, ShieldAlert, ShieldCheck, Siren, Sparkles, Upload, UserRound, X, Zap } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import './style.css';
+import './dashboards/dashboards.css';
 import LandingPage from './LandingPage.jsx';
 import AuthPage from './AuthPage.jsx';
+import DashboardShell from './dashboards/DashboardShell.jsx';
 
 const navItems = [['Dashboard', Home], ['AI Assistant', MessageSquare], ['Security Scan', Scan], ['Vulnerability Scan', Shield], ['Threat Detection', ShieldAlert], ['Fraud Detection', LockKeyhole], ['Digital Forensics', Fingerprint], ['Incident Response', Siren], ['Automation', Network], ['Projects & Files', Folder], ['Notes & Tasks', CheckSquare], ['Reports', FileText], ['Profile', UserRound], ['Settings', Settings], ['Help & Support', CircleHelp]];
 const metrics = [{ label: 'Scans Performed', value: '24', trend: '+12%', sub: '+3 this week', icon: Scan, tone: 'cyan' }, { label: 'Threats Detected', value: '7', trend: '+40%', sub: '2 critical, 5 low', icon: Biohazard, tone: 'red' }, { label: 'Vulnerabilities Found', value: '12', trend: '↓ 20%', sub: '4 high, 6 medium', icon: ShieldCheck, tone: 'amber' }, { label: 'Incidents Resolved', value: '5', trend: '+67%', sub: '+2 this week', icon: Check, tone: 'green' }];
@@ -18,17 +20,16 @@ const categories = [{ name: 'Malicious URLs', value: 8, color: '#ff474d' }, { na
 const activitySeed = [['URL Scan Completed', 'https://example.com', '2 min ago', 'check'], ['Vulnerability Scan', 'sample-project.zip', '15 min ago', 'code'], ['Threat Detected', 'Suspicious domain', '1 hour ago', 'alert'], ['Report Generated', 'Security analysis report.pdf', '2 hours ago', 'file'], ['Login Successful', 'New device (Windows)', '3 hours ago', 'lock']];
 
 function DashboardApp({ token, onLogout }) {
-  const [page, setPage] = useState('Dashboard'), [modal, setModal] = useState(''), [search, setSearch] = useState(''), [range, setRange] = useState('Last 30 Days'), [tasks, setTasks] = useState(initialTasks), [projects, setProjects] = useState(projectsSeed), [scans, setScans] = useState(baseScans), [chat, setChat] = useState([]), [chatText, setChatText] = useState(''), [query, setQuery] = useState(''), [menu, setMenu] = useState(''), [notice, setNotice] = useState(true), [selected, setSelected] = useState(null), [toast, setToast] = useState(''), [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeDashboard, setActiveDashboard] = useState('main');
+  const [page, setPage] = useState('Dashboard'), [modal, setModal] = useState(''), [search, setSearch] = useState(''), [range, setRange] = useState('Last 30 Days'), [tasks, setTasks] = useState(initialTasks), [projects, setProjects] = useState(projectsSeed), [scans, setScans] = useState(baseScans), [chat, setChat] = useState([]), [chatText, setChatText] = useState(''), [menu, setMenu] = useState(''), [notice, setNotice] = useState(true), [selected, setSelected] = useState(null), [toast, setToast] = useState('');
 
   // Load Projects and Tasks from MongoDB Backend
   useEffect(() => {
-    // Projects fetch
     fetch('http://localhost:5000/api/projects', { headers: { 'Authorization': `Bearer ${token}` } })
       .then((res) => res.json())
       .then((data) => setProjects(Array.isArray(data) ? data : data.projects || []))
       .catch((err) => console.error('Projects API error:', err));
 
-    // Tasks fetch from MongoDB
     fetch('http://localhost:5000/api/tasks', { headers: { 'Authorization': `Bearer ${token}` } })
       .then((res) => res.json())
       .then((data) => {
@@ -36,28 +37,41 @@ function DashboardApp({ token, onLogout }) {
         else if (data.tasks && data.tasks.length > 0) setTasks(data.tasks);
       })
       .catch((err) => console.error('Tasks API error:', err));
-  }, []);
+  }, [token]);
 
   const notify = (s) => { setToast(s); setTimeout(() => setToast(''), 2600) };
   const matching = useMemo(() => { if (!search.trim()) return []; const term = search.toLowerCase(); return [...navItems.map(([label]) => ({ label, type: 'section' })), ...scans.map(x => ({ label: x.target, type: 'scan' })), ...tasks.map(x => ({ label: x.title, type: 'task' })), ...projects.map(x => ({ label: x.title, type: 'project' }))].filter(x => x.label.toLowerCase().includes(term)).slice(0, 6) }, [search, scans, tasks, projects]);
 
-  // Save Tasks State Handler — persists to localStorage and MongoDB
   const saveTasks = (next) => {
-    // Find a task whose 'done' state changed and has a MongoDB _id
     const changed = next.find((t, i) => t._id && tasks[i] && t.done !== tasks[i].done);
     if (changed) {
       fetch(`http://localhost:5000/api/tasks/${changed._id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ done: changed.done }),
-      }).catch(() => {}); // silent — UI already updated
+      }).catch(() => {});
     }
     setTasks(next);
     localStorage.setItem('cyberTasks', JSON.stringify(next));
   };
 
-  const navigate = (name) => { setPage(name); setSidebarOpen(false); setMenu(''); setSearch('') };
-  // submitChat — wired to POST /api/chat (Kira AI backend)
+  const selectDashboard = (id) => {
+    setActiveDashboard(id);
+    setMenu('');
+    setSearch('');
+    if (id === 'main') setPage('Dashboard');
+  };
+
+  const navigate = (name) => {
+    setMenu('');
+    setSearch('');
+    if (name === 'Dashboard') { selectDashboard('main'); return; }
+    if (name === 'AI Assistant') { selectDashboard('ai'); return; }
+    if (name === 'Automation') { selectDashboard('automation'); return; }
+    setPage(name);
+    setActiveDashboard('legacy');
+  };
+
   const submitChat = async (text = chatText) => {
     if (!text.trim()) return;
     const userMsg = text.trim();
@@ -78,12 +92,39 @@ function DashboardApp({ token, onLogout }) {
   };
   const action = (name) => { if (name === 'AI Assistant') { navigate(name); return } setModal(name) };
   const doSearch = (item) => { if (item.type === 'section') navigate(item.label); else if (item.type === 'scan') { setSelected(scans.find(x => x.target === item.label)); setModal('Scan details') } else if (item.type === 'task') navigate('Notes & Tasks'); else navigate('Projects & Files'); setSearch('') };
-  const body = <>
-    <header className="topbar"><button className="mobile-menu icon-button" onClick={() => setSidebarOpen(v => !v)}><Menu size={21} /></button><div className="top-brand"><picture><source media="(max-width: 760px)" srcSet="/assets/cyber-agent-logo-reference.png" /><img className="brand-crop" src="/assets/cyber-shield-ai-logo.png" alt="Cyber-Shield AI" /></picture></div><div className="search-wrap"><Search size={17} /><input placeholder="Search anything... (e.g. scan a URL, explain a threat, analyze code...)" value={search} onChange={e => setSearch(e.target.value)} />{search && <button onClick={() => setSearch('')}><X size={15} /></button>}{matching.length > 0 && <div className="search-results">{matching.map((x, i) => <button key={i} onClick={() => doSearch(x)}><Search size={14} />{x.label}<span>{x.type}</span></button>)}</div>}</div><div className="top-right"><div className="dropdown-host"><button className="icon-button bell" onClick={() => setMenu(menu === 'notifications' ? '' : 'notifications')}><Bell size={21} />{notice && <i />}</button>{menu === 'notifications' && <div className="dropdown notifications"><b>Notifications</b><div className="notice-row"><span className="notice-dot" /><div><strong>Weekly scan ready</strong><small>Your dashboard demo data is up to date.</small></div><small>2m</small></div><div className="notice-row"><span className="notice-dot amber" /><div><strong>Demo mode enabled</strong><small>Security actions are not executed.</small></div><small>1h</small></div><button className="dropdown-action" onClick={() => { setNotice(false); setMenu('') }}>Mark all as read</button></div>}</div><div className="account dropdown-host"><button className="account-button" onClick={() => setMenu(menu === 'account' ? '' : 'account')}><div className="avatar"><UserRound size={24} /></div><div className="account-copy"><b>Shared Workspace</b><small>Demo Mode</small></div><ChevronDown size={15} /></button>{menu === 'account' && <div className="dropdown account-menu">{['Profile', 'Settings'].map(x => <button key={x} onClick={() => navigate(x)}>{x}</button>)}<button onClick={() => { setMenu(''); onLogout(); }}><LogOut size={15} />Logout</button></div>}</div></div></header>
-    <aside className={'sidebar ' + (sidebarOpen ? 'opened' : '')}><nav>{navItems.map(([name, Icon], i) => <React.Fragment key={name}>{i === 12 && <div className="nav-separator" />}<button onClick={() => navigate(name)} className={'nav-item ' + (page === name ? 'active' : '')}><Icon size={20} /><span>{name}</span></button></React.Fragment>)}</nav><div className="sidebar-foot">DEMO ENVIRONMENT <span>●</span></div></aside>
-    <main className="main-area"><div className="page-content">{page === 'Dashboard' ? <Dashboard {...{ metrics, actions, range, setRange, scans, setScans, setModal, setSelected, tasks, saveTasks, projects, setProjects, chat, setChat, chatText, setChatText, submitChat, action, notify, navigate, menu, setMenu }} /> : <SectionPage {...{ page, navigate, setModal, tasks, saveTasks, projects, setProjects, scans, setScans, chat, chatText, setChatText, submitChat, notify }} />}</div></main>
-  </>;
-  return <div className="app-shell">{body}{modal && <Modal {...{ modal, setModal, selected, setSelected, notify, setProjects, projects, setTasks, tasks, saveTasks, setScans, scans, token }} />}{toast && <div className="toast"><Check size={16} />{toast}</div>}</div>
+
+  const dashboardProps = { metrics, actions, range, setRange, scans, setScans, setModal, setSelected, tasks, saveTasks, projects, setProjects, chat, setChat, chatText, setChatText, submitChat, action, notify, navigate, menu, setMenu };
+  const sectionProps = { page, navigate, setModal, tasks, saveTasks, projects, setProjects, scans, setScans, chat, chatText, setChatText, submitChat, notify };
+
+  return <>
+    <DashboardShell
+      activeDashboard={activeDashboard}
+      onSelectDashboard={selectDashboard}
+      search={search}
+      onSearchChange={(e) => setSearch(e.target.value)}
+      searchResults={matching}
+      onSearchSelect={doSearch}
+      notificationsOpen={menu === 'notifications'}
+      onToggleNotifications={() => setMenu(menu === 'notifications' ? '' : 'notifications')}
+      notice={notice}
+      onMarkNotificationsRead={() => { setNotice(false); setMenu('') }}
+      accountOpen={menu === 'account'}
+      onToggleAccount={() => setMenu(menu === 'account' ? '' : 'account')}
+      onLogout={() => { setMenu(''); onLogout() }}
+      onNavigateLegacy={navigate}
+      onOpenModal={setModal}
+      showToast={notify}
+      toast={toast}
+      onDismissToast={() => setToast('')}
+      chat={chat}
+      chatText={chatText}
+      setChatText={setChatText}
+      submitChat={submitChat}
+      renderMain={() => <Dashboard {...dashboardProps} />}
+      renderLegacySection={() => <SectionPage {...sectionProps} />}
+    />
+    {modal && <Modal {...{ modal, setModal, selected, setSelected, notify, setProjects, projects, setTasks, tasks, saveTasks, setScans, scans, token }} />}
+  </>
 }
 
 function Dashboard(p) {
